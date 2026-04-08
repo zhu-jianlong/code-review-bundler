@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Code Review Bundler</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: #0f1117; color: #e2e8f0;
+      min-height: 100vh; display: flex; flex-direction: column;
+      align-items: center; padding: 36px 20px 60px;
+    }
+    h1 { font-size: 1.5rem; font-weight: 700; color: #f8fafc; }
+    .subtitle { font-size: 0.88rem; color: #64748b; margin-top: 4px; margin-bottom: 28px; }
+    .card {
+      width: 100%; max-width: 720px; background: #161b27;
+      border: 1px solid #1e2d40; border-radius: 14px;
+      padding: 18px 20px; margin-bottom: 14px;
+    }
+    .card-label {
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: #475569; margin-bottom: 12px;
+    }
+    .presets { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 11px; }
+    .preset-btn {
+      background: #1e293b; border: 1px solid #2d3f52; color: #94a3b8;
+      border-radius: 999px; padding: 4px 13px; font-size: 0.8rem;
+      cursor: pointer; transition: all 0.15s; user-select: none;
+    }
+    .preset-btn:hover { border-color: #6366f1; color: #a5b4fc; }
+    .preset-btn.active { background: #312e81; border-color: #6366f1; color: #c7d2fe; }
+    .preset-btn.active:hover { background: #3730a3; }
+    .preset-hint { font-size: 0.75rem; color: #475569; margin-bottom: 10px; }
+    .ext-row { display: flex; align-items: center; gap: 10px; }
+    .ext-row label { font-size: 0.82rem; color: #64748b; white-space: nowrap; }
+    .ext-input {
+      flex: 1; background: #1e293b; border: 1px solid #2d3f52;
+      border-radius: 8px; color: #e2e8f0; padding: 7px 12px;
+      font-size: 0.85rem; outline: none; transition: border-color 0.15s;
+    }
+    .ext-input:focus { border-color: #6366f1; }
+    .ext-input::placeholder { color: #475569; }
+    .filter-note { font-size: 0.78rem; color: #64748b; margin-top: 8px; }
+    .filter-note span { color: #818cf8; font-weight: 600; }
+    /* Exclude row */
+    .exclude-row {
+      display: flex; align-items: center; gap: 10px;
+      margin-top: 12px; flex-wrap: wrap;
+    }
+    .exclude-row > label:first-child { font-size: 0.82rem; color: #64748b; white-space: nowrap; }
+    .exclude-input {
+      flex: 1; min-width: 80px; background: #1e293b; border: 1px solid #2d3f52;
+      border-radius: 8px; color: #f8fafc; padding: 7px 12px;
+      font-size: 0.85rem; outline: none; transition: border-color 0.15s;
+    }
+    .exclude-input:focus { border-color: #6366f1; }
+    .exclude-note { font-size: 0.75rem; color: #64748b; margin-top: 6px; }
+    .opt-inline {
+      display: flex; align-items: center; gap: 7px;
+      font-size: 0.82rem; color: #94a3b8; white-space: nowrap; cursor: pointer;
+    }
+    .opt-inline input[type=checkbox] { width: 15px; height: 15px; accent-color: #6366f1; cursor: pointer; }
+    /* Drop zone */
+    .drop-zone {
+      width: 100%; max-width: 720px; border: 2px dashed #1e2d40;
+      border-radius: 14px; padding: 44px 24px; text-align: center;
+      cursor: pointer; transition: border-color 0.2s, background 0.2s;
+      background: #161b27; margin-bottom: 14px;
+    }
+    .drop-zone.drag-over { border-color: #6366f1; background: #1a1a3a; }
+    .drop-zone svg { margin: 0 auto 14px; opacity: 0.5; }
+    .drop-zone p { color: #94a3b8; font-size: 0.92rem; }
+    .drop-zone .link { color: #818cf8; font-weight: 600; text-decoration: underline; }
+    #file-input { display: none; }
+    /* Auto-remove notice */
+    #auto-notice {
+      display: none; width: 100%; max-width: 720px;
+      background: #1c150a; border: 1px solid #854d0e;
+      border-radius: 14px; padding: 12px 18px;
+      margin-bottom: 14px; font-size: 0.82rem; color: #fbbf24;
+    }
+    #auto-notice strong { color: #f59e0b; }
+    /* Suggested exclusions */
+    #suggest-section { display: none; }
+    .suggest-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .suggest-title { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #b45309; }
+    .suggest-desc { font-size: 0.78rem; color: #78716c; margin-bottom: 10px; }
+    .suggest-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+    .suggest-chip {
+      display: flex; align-items: center; gap: 6px;
+      background: #1c150a; border: 1px solid #854d0e;
+      color: #fbbf24; border-radius: 8px; padding: 5px 10px;
+      font-size: 0.8rem; font-family: monospace; transition: background 0.15s;
+    }
+    .suggest-chip:hover { background: #2a1e0a; }
+    .suggest-chip .chip-path { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .suggest-chip .chip-count { font-size: 0.72rem; color: #92400e; }
+    .suggest-chip .chip-rm {
+      background: none; border: none; color: #92400e; cursor: pointer;
+      font-size: 0.9rem; padding: 0 2px; border-radius: 4px; line-height: 1; transition: color 0.15s;
+    }
+    .suggest-chip .chip-rm:hover { color: #f87171; }
+    .suggest-all-btn {
+      margin-top: 10px; background: #1c150a; border: 1px solid #854d0e;
+      color: #fbbf24; border-radius: 8px; padding: 5px 14px;
+      font-size: 0.8rem; cursor: pointer; transition: background 0.15s;
+    }
+    .suggest-all-btn:hover { background: #2a1e0a; }
+    /* Tree */
+    .tree-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .stats { font-size: 0.8rem; color: #64748b; }
+    .stats strong { color: #818cf8; }
+    #tree-container { user-select: none; }
+    .tree-item {
+      display: flex; align-items: center; gap: 7px;
+      padding: 5px 8px; border-radius: 7px; font-size: 0.85rem; transition: background 0.12s;
+    }
+    .tree-item:hover { background: #1e2d40; }
+    .tree-dir { cursor: pointer; color: #94a3b8; font-weight: 600; font-size: 0.82rem; }
+    .tree-dir.data-hint { color: #fbbf24; }
+    .tree-dir.data-hint .folder-icon::after { content: ' ⚠'; font-size: 0.75rem; color: #f59e0b; }
+    .tree-dir-name { flex: 1; }
+    .tree-dir-count { font-size: 0.75rem; color: #475569; flex-shrink: 0; }
+    .tree-toggle { font-size: 0.7rem; color: #475569; width: 12px; text-align: center; flex-shrink: 0; }
+    .tree-file { color: #cbd5e1; }
+    .tree-file .file-icon { font-size: 1rem; flex-shrink: 0; }
+    .tree-file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tree-file-size { font-size: 0.75rem; color: #475569; white-space: nowrap; flex-shrink: 0; }
+    .tree-file.excluded .tree-file-name { text-decoration: line-through; color: #334155; }
+    .tree-file.excluded .file-icon { opacity: 0.35; }
+    .tree-file.excluded .tree-file-size { color: #1e293b; }
+    .excl-badge {
+      font-size: 0.68rem; background: #1e293b; border: 1px solid #334155;
+      color: #475569; padding: 1px 7px; border-radius: 999px; flex-shrink: 0;
+    }
+    .tree-remove {
+      background: none; border: none; color: #334155; cursor: pointer;
+      font-size: 0.9rem; padding: 2px 5px; border-radius: 5px; flex-shrink: 0;
+      line-height: 1; transition: color 0.15s, background 0.15s;
+    }
+    .tree-remove:hover { color: #f87171; background: #2d1414; }
+    /* Options */
+    .options-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+    .opt { display: flex; align-items: center; gap: 9px; font-size: 0.85rem; color: #94a3b8; cursor: pointer; }
+    .opt input[type=checkbox] { width: 15px; height: 15px; accent-color: #6366f1; cursor: pointer; }
+    .opt-field { display: flex; flex-direction: column; gap: 4px; }
+    .opt-field label { font-size: 0.78rem; color: #64748b; }
+    .opt-field input[type=text] {
+      background: #1e293b; border: 1px solid #2d3f52; border-radius: 7px;
+      color: #e2e8f0; padding: 6px 10px; font-size: 0.83rem; outline: none; width: 100%;
+    }
+    .opt-field input:focus { border-color: #6366f1; }
+    /* Actions */
+    .actions { width: 100%; max-width: 720px; display: flex; gap: 10px; margin-top: 4px; }
+    .btn-primary {
+      flex: 1; padding: 12px 24px; background: #6366f1; color: #fff;
+      border: none; border-radius: 10px; font-size: 0.93rem; font-weight: 600;
+      cursor: pointer; transition: background 0.2s, transform 0.1s;
+    }
+    .btn-primary:hover:not(:disabled) { background: #4f46e5; }
+    .btn-primary:active:not(:disabled) { transform: scale(0.98); }
+    .btn-primary:disabled { background: #1e293b; color: #475569; cursor: not-allowed; }
+    .btn-secondary {
+      padding: 12px 18px; background: transparent; color: #94a3b8;
+      border: 1px solid #1e2d40; border-radius: 10px; font-size: 0.88rem;
+      cursor: pointer; transition: border-color 0.2s, color 0.2s;
+    }
+    .btn-secondary:hover { border-color: #6366f1; color: #818cf8; }
+    #status { margin-top: 12px; font-size: 0.83rem; min-height: 18px; color: #4ade80; }
+    .scanning { color: #818cf8; } .warn { color: #facc15; }
+    /* GitHub link */
+    .github-link {
+      width: 100%; max-width: 720px; display: block; text-align: center;
+      margin: 18px auto 0; padding: 12px 24px;
+      background: #1e293b; border: 1px solid #6366f1; border-radius: 10px;
+      color: #818cf8; text-decoration: none; font-size: 0.9rem; font-weight: 600;
+      transition: all 0.2s;
+    }
+    .github-link:hover { background: #312e81; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99,102,241,0.3); }
+  </style>
+</head>
+<body>
+
+<h1>🗂 Code Review Bundler</h1>
+<p class="subtitle">Drop files or entire folders — download a combined TXT ready for review</p>
+
+<!-- FILTER -->
+<div class="card">
+  <div class="card-label">File type filter</div>
+  <p class="preset-hint">Toggle one or more types — or leave all unselected to include everything</p>
+  <div class="presets" id="presets">
+    <button class="preset-btn" data-exts="py,pyi">🐍 Python</button>
+    <button class="preset-btn" data-exts="js,jsx,mjs,cjs,ts,tsx">🟨 JS / TS</button>
+    <button class="preset-btn" data-exts="html,htm,css,scss,sass,less,svg">🌐 Web</button>
+    <button class="preset-btn" data-exts="java,kt,scala">☕ JVM</button>
+    <button class="preset-btn" data-exts="c,cpp,h,hpp,cc">⚙️ C / C++</button>
+    <button class="preset-btn" data-exts="go">🐹 Go</button>
+    <button class="preset-btn" data-exts="rs">🦀 Rust</button>
+    <button class="preset-btn" data-exts="cs">🔵 C#</button>
+    <button class="preset-btn" data-exts="json,yaml,yml,toml,ini,conf,env,xml">📦 Config</button>
+    <button class="preset-btn" data-exts="md,rst">📝 Markdown</button>
+    <button class="preset-btn" data-exts="txt">📄 TXT</button>
+
+  </div>
+  <div class="ext-row">
+    <label>Active:</label>
+    <input type="text" id="ext-input" class="ext-input" placeholder="All files included (no filter active)" />
+  </div>
+  <div class="filter-note">Including <span id="inc-count">0</span> / <span id="total-count">0</span> files</div>
+  <div class="exclude-row">
+    <label>Exclude folders containing the string:</label>
+    <input type="text" id="exclude-term" class="exclude-input" value="data" />
+    <label class="opt-inline">
+      <input type="checkbox" id="opt-auto-exclude" checked />
+      Auto-exclude on drop
+    </label>
+  </div>
+  <p class="exclude-note">Folders whose name contains this word are highlighted ⚠ and auto-removed when dropped. Leave blank to disable.</p>
+</div>
+
+<!-- DROP ZONE -->
+<div class="drop-zone" id="drop-zone">
+  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="1.4">
+    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+    <polyline points="16 13 12 9 8 13"/>
+    <line x1="12" y1="9" x2="12" y2="17"/>
+  </svg>
+  <p><strong style="color:#e2e8f0;">Drag &amp; drop files or folders here</strong></p>
+  <p style="margin-top:6px;">or <span class="link" id="browse-link">click to browse files</span></p>
+  <p style="margin-top:10px;font-size:0.78rem;color:#475569;">Folders are scanned recursively · Matching folders auto-excluded</p>
+  <input type="file" id="file-input" multiple />
+</div>
+
+<!-- AUTO-REMOVE NOTICE -->
+<div id="auto-notice"></div>
+
+<!-- SUGGESTED EXCLUSIONS -->
+<div class="card" id="suggest-section">
+  <div class="suggest-header">
+    <span>⚠️</span>
+    <span class="suggest-title" id="suggest-title">Matching folders still present</span>
+  </div>
+  <p class="suggest-desc" id="suggest-desc">These folders were not auto-removed. Click ✕ to remove.</p>
+  <div class="suggest-chips" id="suggest-chips"></div>
+  <button class="suggest-all-btn" id="suggest-all-btn">✕ Remove all listed folders</button>
+</div>
+
+<!-- TREE VIEW -->
+<div class="card" id="tree-section" style="display:none;">
+  <div class="tree-header">
+    <div class="card-label" style="margin-bottom:0;">Queued files</div>
+    <div class="stats">
+      <strong id="stats-included">0</strong> included &nbsp;·&nbsp;
+      <span id="stats-excluded" style="color:#475569;">0 excluded</span> &nbsp;·&nbsp;
+      <span id="stats-size" style="color:#475569;">0 B</span>
+    </div>
+  </div>
+  <div id="tree-container"></div>
+</div>
+
+<!-- OPTIONS -->
+<div class="card">
+  <div class="card-label">Export options</div>
+  <div class="options-grid">
+    <label class="opt"><input type="checkbox" id="opt-linenums" checked /> Add line numbers</label>
+    <label class="opt"><input type="checkbox" id="opt-toc" checked /> Table of contents</label>
+    <label class="opt"><input type="checkbox" id="opt-tree" checked /> Folder tree in output</label>
+    <div class="opt-field">
+      <label>Output filename</label>
+      <input type="text" id="opt-filename" />
+    </div>
+  </div>
+</div>
+
+<div class="actions">
+  <button class="btn-primary" id="download-btn" disabled>⬇ Download Combined TXT</button>
+  <button class="btn-secondary" id="clear-btn">Clear all</button>
+</div>
+<div id="status"></div>
+
+<a href="https://github.com/zhu-jianlong/code-review-bundler" target="_blank" class="github-link">
+  ⭐ Star and Contribute on GitHub
+</a>
+
+<script>
+// ── DOM refs ───────────────────────────────────────────────────────────────
+const dropZone       = document.getElementById('drop-zone');
+const fileInput      = document.getElementById('file-input');
+const browseLink     = document.getElementById('browse-link');
+const treeSection    = document.getElementById('tree-section');
+const treeContainer  = document.getElementById('tree-container');
+const suggestSection = document.getElementById('suggest-section');
+const suggestChips   = document.getElementById('suggest-chips');
+const suggestAllBtn  = document.getElementById('suggest-all-btn');
+const autoNotice     = document.getElementById('auto-notice');
+const downloadBtn    = document.getElementById('download-btn');
+const clearBtn       = document.getElementById('clear-btn');
+const statusEl       = document.getElementById('status');
+const extInput       = document.getElementById('ext-input');
+const presetsEl      = document.getElementById('presets');
+const incCount       = document.getElementById('inc-count');
+const totalCount     = document.getElementById('total-count');
+const statsInc       = document.getElementById('stats-included');
+const statsExcl      = document.getElementById('stats-excluded');
+const statsSize      = document.getElementById('stats-size');
+const optLinenums    = document.getElementById('opt-linenums');
+const optToc         = document.getElementById('opt-toc');
+const optTree        = document.getElementById('opt-tree');
+const optFilename    = document.getElementById('opt-filename');
+const excludeTerm    = document.getElementById('exclude-term');
+const optAutoExclude = document.getElementById('opt-auto-exclude');
+
+// ── State ──────────────────────────────────────────────────────────────────
+const allFiles = new Map();
+
+// ── Default filename ───────────────────────────────────────────────────────
+(function() {
+  const n = new Date(), p = x => String(x).padStart(2,'0');
+  optFilename.value = `code_review_${n.getFullYear()}-${p(n.getMonth()+1)}-${p(n.getDate())}_${p(n.getHours())}-${p(n.getMinutes())}.txt`;
+})();
+
+// ── Preset toggles ─────────────────────────────────────────────────────────
+presetsEl.addEventListener('click', e => {
+  const btn = e.target.closest('.preset-btn');
+  if (!btn) return;
+  btn.classList.toggle('active');
+  rebuildExtInput();
+  updateFilterUI();
+});
+// call update on direct typing into ext input
+extInput.addEventListener('input', updateFilterUI);
+function rebuildExtInput() {
+  const activeExts = new Set();
+  presetsEl.querySelectorAll('.preset-btn.active').forEach(b => {
+    b.dataset.exts.split(',').forEach(x => activeExts.add(x.trim()));
+  });
+  extInput.value = [...activeExts].join(', ');
+}
+
+// ── Filter helpers ─────────────────────────────────────────────────────────
+function getFilter() {
+  const raw = extInput.value.trim();
+  if (!raw) return null;
+  return new Set(raw.split(/[,\s]+/).map(e => e.replace(/^\./, '').toLowerCase()).filter(Boolean));
+}
+function isIncluded(ext) { const f = getFilter(); return !f || f.has(ext); }
+function getIncludedFiles() { return Array.from(allFiles.values()).filter(f => isIncluded(f.ext)); }
+
+function updateFilterUI() {
+  const total    = allFiles.size;
+  const included = getIncludedFiles();
+  const excluded = total - included.length;
+  const bytes    = included.reduce((s, f) => s + f.file.size, 0);
+  totalCount.textContent  = total;
+  incCount.textContent    = included.length;
+  statsInc.textContent    = included.length;
+  statsExcl.textContent   = `${excluded} excluded`;
+  statsSize.textContent   = formatSize(bytes);
+  downloadBtn.disabled    = included.length === 0;
+  downloadBtn.textContent = `⬇ Download ${included.length} file${included.length !== 1 ? 's' : ''} as TXT`;
+  treeContainer.querySelectorAll('.tree-file[data-ext]').forEach(el => {
+    const inc = isIncluded(el.dataset.ext);
+    el.classList.toggle('excluded', !inc);
+    const existing = el.querySelector('.excl-badge');
+    if (!inc && !existing) {
+      const b = document.createElement('span');
+      b.className = 'excl-badge'; b.textContent = 'excluded';
+      el.insertBefore(b, el.querySelector('.tree-remove'));
+    } else if (inc && existing) existing.remove();
+  });
+}
+
+// ── Drop zone ──────────────────────────────────────────────────────────────
+['dragenter','dragover','dragleave','drop'].forEach(ev =>
+  dropZone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); })
+);
+['dragenter','dragover'].forEach(ev =>
+  dropZone.addEventListener(ev, () => dropZone.classList.add('drag-over'))
+);
+['dragleave','drop'].forEach(ev =>
+  dropZone.addEventListener(ev, () => dropZone.classList.remove('drag-over'))
+);
+dropZone.addEventListener('drop', async e => {
+  setStatus('Scanning…', 'scanning');
+  let added = 0;
+  for (const item of Array.from(e.dataTransfer.items)) {
+    const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+    if (entry) added += await processEntry(entry, '');
+  }
+  finishAdding(added);
+});
+browseLink.addEventListener('click', e => { e.stopPropagation(); fileInput.click(); });
+dropZone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', async () => {
+  setStatus('Reading…', 'scanning');
+  let added = 0;
+  for (const f of fileInput.files) {
+    if (!allFiles.has(f.name)) {
+      allFiles.set(f.name, { file: f, path: f.name, name: f.name, ext: getExt(f.name) });
+      added++;
+    }
+  }
+  fileInput.value = '';
+  finishAdding(added);
+});
+
+// ── File system traversal ──────────────────────────────────────────────────
+async function processEntry(entry, parentPath) {
+  const fullPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+  if (entry.isFile) {
+    return new Promise(resolve => {
+      entry.file(file => {
+        if (!allFiles.has(fullPath)) {
+          allFiles.set(fullPath, { file, path: fullPath, name: entry.name, ext: getExt(entry.name) });
+          resolve(1);
+        } else resolve(0);
+      }, () => resolve(0));
+    });
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    const entries = await readAllEntries(reader);
+    let total = 0;
+    for (const child of entries) total += await processEntry(child, fullPath);
+    return total;
+  }
+  return 0;
+}
+function readAllEntries(reader) {
+  return new Promise(resolve => {
+    const results = [];
+    function read() {
+      reader.readEntries(batch => {
+        if (batch.length === 0) resolve(results);
+        else { results.push(...batch); read(); }
+      }, () => resolve(results));
+    }
+    read();
+  });
+}
+
+// ── finishAdding ───────────────────────────────────────────────────────────
+function finishAdding(added) {
+  if (added <= 0) { setStatus('No new files added (duplicates skipped).', 'warn'); return; }
+  const dataFolders = findMatchingFolders();
+  let removedFiles = 0;
+  if (optAutoExclude.checked && dataFolders.size > 0) {
+    const sorted = [...dataFolders.keys()].sort((a, b) => b.length - a.length);
+    const removed = new Set();
+    for (const fp of sorted) {
+      const prefix = fp + '/';
+      for (const path of [...allFiles.keys()]) {
+        if (!removed.has(path) && (path === fp || path.startsWith(prefix))) {
+          allFiles.delete(path); removed.add(path); removedFiles++;
+        }
+      }
+    }
+  }
+  renderTree(); updateFilterUI(); updateSuggestSection();
+  if (removedFiles > 0) {
+    const term = excludeTerm.value.trim() || 'data';
+    const names = [...dataFolders.keys()]
+      .map(p => `<code style="background:#2d1f0a;padding:1px 5px;border-radius:4px">${p.split('/').pop()}/</code>`)
+      .join(' ');
+    autoNotice.style.display = '';
+    autoNotice.innerHTML = `⚠️ Auto-excluded <strong>${removedFiles} file${removedFiles !== 1 ? 's' : ''}</strong> in ${dataFolders.size} folder${dataFolders.size !== 1 ? 's' : ''} matching "<strong>${term}</strong>": ${names}.`;
+    setTimeout(() => { autoNotice.style.display = 'none'; }, 7000);
+  } else {
+    autoNotice.style.display = 'none';
+  }
+  setStatus(`Added ${added} file${added !== 1 ? 's' : ''}${removedFiles > 0 ? `, auto-excluded ${removedFiles} from matching folders` : ''}. ${allFiles.size} queued.`, '');
+}
+
+// ── Remove folder ──────────────────────────────────────────────────────────
+function removeFolderFiles(folderPath) {
+  const prefix = folderPath + '/';
+  let count = 0;
+  for (const path of [...allFiles.keys()]) {
+    if (path === folderPath || path.startsWith(prefix)) { allFiles.delete(path); count++; }
+  }
+  renderTree(); updateFilterUI(); updateSuggestSection();
+  if (allFiles.size === 0) treeSection.style.display = 'none';
+  setStatus(`Removed ${count} file${count !== 1 ? 's' : ''} from "${folderPath.split('/').pop()}/"`, '');
+}
+
+// ── Matching folder detection ──────────────────────────────────────────────
+function findMatchingFolders() {
+  const term = excludeTerm.value.trim().toLowerCase();
+  if (!term) return new Map();
+  const found = new Map();
+  for (const [path] of allFiles) {
+    const parts = path.split('/');
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (parts[i].toLowerCase().includes(term)) {
+        const fp = parts.slice(0, i + 1).join('/');
+        found.set(fp, (found.get(fp) || 0) + 1);
+      }
+    }
+  }
+  return found;
+}
+
+function updateSuggestSection() {
+  const term = excludeTerm.value.trim() || 'data';
+  const folders = findMatchingFolders();
+  if (folders.size === 0) { suggestSection.style.display = 'none'; return; }
+  suggestSection.style.display = '';
+  document.getElementById('suggest-title').textContent = `Folders matching "${term}" still present`;
+  suggestChips.innerHTML = '';
+  [...folders.entries()].sort((a, b) => a[0].localeCompare(b[0])).forEach(([fp, count]) => {
+    const chip = document.createElement('div');
+    chip.className = 'suggest-chip';
+    chip.innerHTML = `<span>📁</span><span class="chip-path" title="${fp}">${fp}</span><span class="chip-count">${count} file${count!==1?'s':''}</span><button class="chip-rm">✕</button>`;
+    chip.querySelector('.chip-rm').addEventListener('click', e => { e.stopPropagation(); removeFolderFiles(fp); });
+    suggestChips.appendChild(chip);
+  });
+  suggestAllBtn.onclick = () => {
+    [...folders.keys()].sort((a,b) => b.length - a.length).forEach(fp => removeFolderFiles(fp));
+  };
+}
+
+// Re-render when exclude term or checkbox changes
+excludeTerm.addEventListener('input', () => { renderTree(); updateSuggestSection(); updateFilterUI(); });
+optAutoExclude.addEventListener('change', updateSuggestSection);
+
+// ── Clear ──────────────────────────────────────────────────────────────────
+clearBtn.addEventListener('click', () => {
+  allFiles.clear();
+  treeContainer.innerHTML = '';
+  treeSection.style.display = 'none';
+  suggestSection.style.display = 'none';
+  autoNotice.style.display = 'none';
+  downloadBtn.disabled = true;
+  updateFilterUI();
+  setStatus('Cleared.', '');
+});
+
+// ── Tree rendering ─────────────────────────────────────────────────────────
+function renderTree() {
+  treeContainer.innerHTML = '';
+  if (allFiles.size === 0) { treeSection.style.display = 'none'; return; }
+  treeSection.style.display = '';
+  const root = {};
+  for (const [, f] of allFiles) {
+    const parts = f.path.split('/');
+    let node = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const p = parts[i];
+      if (!node[p] || node[p]._isFile) node[p] = { _isDir: true, _children: {} };
+      node = node[p]._children;
+    }
+    node[parts[parts.length - 1]] = { _isFile: true, _data: f };
+  }
+  renderDOMNode(root, treeContainer, 0, '');
+  updateFilterUI();
+}
+
+function renderDOMNode(node, container, depth, pathPrefix) {
+  const term = excludeTerm.value.trim().toLowerCase();
+  const keys = Object.keys(node).sort((a, b) => {
+    const aD = !!node[a]._isDir, bD = !!node[b]._isDir;
+    if (aD !== bD) return aD ? -1 : 1;
+    return a.localeCompare(b);
+  });
+  for (const key of keys) {
+    const entry = node[key];
+    const indent = depth * 18 + 10;
+    const fullPath = pathPrefix ? `${pathPrefix}/${key}` : key;
+    if (entry._isDir) {
+      const isMatch = term && key.toLowerCase().includes(term);
+      const row = document.createElement('div');
+      row.className = `tree-item tree-dir${isMatch ? ' data-hint' : ''}`;
+      row.style.paddingLeft = indent + 'px';
+      row.innerHTML = `
+        <span class="tree-toggle">▾</span>
+        <span class="folder-icon">📁</span>
+        <span class="tree-dir-name">${key}/</span>
+        <span class="tree-dir-count"></span>
+        <button class="tree-remove" title="Remove all files in this folder">✕</button>
+      `;
+      row.querySelector('.tree-remove').addEventListener('click', e => { e.stopPropagation(); removeFolderFiles(fullPath); });
+      container.appendChild(row);
+      const childWrap = document.createElement('div');
+      container.appendChild(childWrap);
+      renderDOMNode(entry._children, childWrap, depth + 1, fullPath);
+      row.addEventListener('click', e => {
+        if (e.target.closest('.tree-remove')) return;
+        const collapsed = childWrap.style.display === 'none';
+        childWrap.style.display = collapsed ? '' : 'none';
+        row.querySelector('.tree-toggle').textContent = collapsed ? '▾' : '▸';
+      });
+    } else {
+      const f = entry._data;
+      const row = document.createElement('div');
+      row.className = `tree-item tree-file${isIncluded(f.ext) ? '' : ' excluded'}`;
+      row.dataset.ext = f.ext; row.dataset.path = f.path;
+      row.style.paddingLeft = indent + 'px';
+      row.innerHTML = `
+        <span class="file-icon">${iconFor(f.ext)}</span>
+        <span class="tree-file-name" title="${f.path}">${key}</span>
+        <span class="tree-file-size">${formatSize(f.file.size)}</span>
+        <button class="tree-remove" title="Remove file">✕</button>
+      `;
+      row.querySelector('.tree-remove').addEventListener('click', e => {
+        e.stopPropagation();
+        allFiles.delete(f.path); row.remove();
+        updateFilterUI(); updateSuggestSection();
+        if (allFiles.size === 0) treeSection.style.display = 'none';
+        setStatus(`Removed "${f.name}".`, '');
+      });
+      container.appendChild(row);
+    }
+  }
+}
+
+// ── Download ───────────────────────────────────────────────────────────────
+downloadBtn.addEventListener('click', async () => {
+  const included = getIncludedFiles();
+  if (!included.length) return;
+  downloadBtn.disabled = true;
+  setStatus('Reading files…', 'scanning');
+  included.sort((a, b) => a.path.localeCompare(b.path));
+  const entries = [];
+  for (const f of included) { const text = await readFile(f.file); entries.push({ ...f, text }); }
+  const SEP = '='.repeat(80), THIN = '-'.repeat(80);
+  const now = new Date().toISOString().replace('T',' ').slice(0,19) + ' UTC';
+  let out = SEP + '\nCODE REVIEW BUNDLE\n';
+  out += `Generated : ${now}\nFiles     : ${entries.length}\n`;
+  if (getFilter()) out += `Filter    : .${[...getFilter()].join(', .')}\n`;
+  out += SEP + '\n\n';
+  if (optTree.checked) { out += 'FOLDER STRUCTURE\n' + THIN + '\n' + buildAsciiTree(entries) + '\n'; }
+  if (optToc.checked) {
+    out += 'TABLE OF CONTENTS\n' + THIN + '\n';
+    entries.forEach((e, i) => {
+      out += `  ${String(i+1).padStart(3)}. ${e.path}  (${formatSize(e.file.size)}, ${e.text.split('\n').length} lines)\n`;
+    });
+    out += '\n';
+  }
+  entries.forEach((e, i) => {
+    out += SEP + '\nFILE ' + (i+1) + '/' + entries.length + ': ' + e.path + '\nSIZE: ' + formatSize(e.file.size) + '\n' + THIN + '\n\n';
+    if (optLinenums.checked) {
+      const lines = e.text.split('\n'), pad = String(lines.length).length;
+      out += lines.map((l, n) => `${String(n+1).padStart(pad)} | ${l}`).join('\n');
+    } else { out += e.text; }
+    out += '\n\n';
+  });
+  out += SEP + '\nEND OF BUNDLE — ' + entries.length + ' file(s)\n' + SEP + '\n';
+  const blob = new Blob([out], { type: 'text/plain;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = Object.assign(document.createElement('a'), { href: url, download: optFilename.value.trim() || 'code_review.txt' });
+  a.click(); URL.revokeObjectURL(url);
+  downloadBtn.disabled = false;
+  setStatus(`✓ Downloaded "${a.download}" (${formatSize(blob.size)})`, '');
+});
+
+// ── ASCII tree ─────────────────────────────────────────────────────────────
+function buildAsciiTree(files) {
+  const root = {};
+  for (const f of files) {
+    const parts = f.path.split('/');
+    let node = root;
+    for (let i = 0; i < parts.length - 1; i++) { if (!node[parts[i]]) node[parts[i]] = {}; node = node[parts[i]]; }
+    node[parts[parts.length - 1]] = null;
+  }
+  return renderAsciiNode(root, '');
+}
+function renderAsciiNode(node, prefix) {
+  let result = '';
+  const keys = Object.keys(node).sort((a, b) => {
+    const aD = node[a] !== null && typeof node[a] === 'object';
+    const bD = node[b] !== null && typeof node[b] === 'object';
+    if (aD !== bD) return aD ? -1 : 1; return a.localeCompare(b);
+  });
+  keys.forEach((key, i) => {
+    const isLast = i === keys.length - 1, isDir = node[key] !== null && typeof node[key] === 'object';
+    result += prefix + (isLast ? '└── ' : '├── ') + key + (isDir ? '/' : '') + '\n';
+    if (isDir) result += renderAsciiNode(node[key], prefix + (isLast ? '    ' : '│   '));
+  });
+  return result;
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function readFile(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = e => resolve(e.target.result);
+    r.onerror = () => reject(r.error);
+    r.readAsText(file, 'UTF-8');
+  });
+}
+function getExt(name) { const p = name.split('.'); return p.length > 1 ? p.pop().toLowerCase() : ''; }
+function formatSize(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  return (b/1048576).toFixed(2) + ' MB';
+}
+function iconFor(ext) {
+  const m = {
+    py:'🐍',pyi:'🐍',js:'🟨',jsx:'🟨',mjs:'🟨',cjs:'🟨',ts:'🔷',tsx:'🔷',
+    html:'🌐',htm:'🌐',css:'🎨',scss:'🎨',sass:'🎨',less:'🎨',
+    java:'☕',kt:'☕',scala:'☕',cpp:'⚙️',c:'⚙️',h:'⚙️',hpp:'⚙️',cc:'⚙️',
+    cs:'🔵',go:'🐹',rs:'🦀',rb:'💎',php:'🐘',sh:'🖥️',bash:'🖥️',zsh:'🖥️',
+    sql:'🗄️',r:'📊',swift:'🍎',dart:'🎯',vue:'💚',svelte:'🔥',
+    json:'📦',yaml:'📦',yml:'📦',toml:'📦',ini:'⚙️',conf:'⚙️',env:'🔑',xml:'📦',
+    md:'📝',rst:'📝',tex:'📐',txt:'📄',
+    svg:'🖼️',png:'🖼️',jpg:'🖼️',jpeg:'🖼️',csv:'📊',xlsx:'📊',xls:'📊',
+  };
+  return m[ext] || '📄';
+}
+function setStatus(msg, cls) { statusEl.textContent = msg; statusEl.className = cls || ''; }
+</script>
+</body>
+</html>
