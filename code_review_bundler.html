@@ -217,6 +217,25 @@
       Auto-exclude on drop
     </label>
   </div>
+  <div class="exclude-row">
+    <label>Remove files containing the string:</label>
+    <input type="text" id="file-exclude-term" class="exclude-input" placeholder="e.g. temp, backup">
+    <label class="opt-inline">
+      <input type="checkbox" id="opt-auto-exclude-files" checked /> Auto-exclude on drop
+    </label>
+  </div>
+  <p class="exclude-note">Files whose name contains this word are highlighted and auto-removed when dropped. Leave blank to disable.</p>
+
+  <!-- New suggestions section for files -->
+  <div class="card" id="file-suggest-section" style="display: none;">
+    <div class="suggest-header">
+      <span></span>
+      <span class="suggest-title" id="file-suggest-title">Matching files still present</span>
+    </div>
+    <p class="suggest-desc" id="file-suggest-desc">These files were not auto-removed. Click to remove.</p>
+    <div class="suggest-chips" id="file-suggest-chips"></div>
+    <button class="suggest-all-btn" id="file-suggest-all-btn">Remove all listed files</button>
+  </div>
   <p class="exclude-note">Folders whose name contains this word are highlighted ⚠ and auto-removed when dropped. Leave blank to disable.</p>
 </div>
 
@@ -311,6 +330,13 @@ const optTree        = document.getElementById('opt-tree');
 const optFilename    = document.getElementById('opt-filename');
 const excludeTerm    = document.getElementById('exclude-term');
 const optAutoExclude = document.getElementById('opt-auto-exclude');
+const fileExcludeTerm = document.getElementById('file-exclude-term');
+const optAutoExcludeFiles = document.getElementById('opt-auto-exclude-files');
+const fileSuggestSection = document.getElementById('file-suggest-section');
+const fileSuggestChips = document.getElementById('file-suggest-chips');
+const fileSuggestAllBtn = document.getElementById('file-suggest-all-btn');
+const fileSuggestTitle = document.getElementById('file-suggest-title');
+const fileSuggestDesc = document.getElementById('file-suggest-desc');
 
 // ── State ──────────────────────────────────────────────────────────────────
 const allFiles = new Map();
@@ -346,7 +372,7 @@ function getFilter() {
   return new Set(raw.split(/[,\s]+/).map(e => e.replace(/^\./, '').toLowerCase()).filter(Boolean));
 }
 function isIncluded(ext) { const f = getFilter(); return !f || f.has(ext); }
-function getIncludedFiles() { return Array.from(allFiles.values()).filter(f => isIncluded(f.ext)); }
+function getIncludedFiles() { return Array.from(allFiles.values()).filter(f => isIncluded(f.ext) && !isFileExcluded(f.name)); }
 
 function updateFilterUI() {
   const total    = allFiles.size;
@@ -361,7 +387,10 @@ function updateFilterUI() {
   downloadBtn.disabled    = included.length === 0;
   downloadBtn.textContent = `⬇ Download ${included.length} file${included.length !== 1 ? 's' : ''} as TXT`;
   treeContainer.querySelectorAll('.tree-file[data-ext]').forEach(el => {
-    const inc = isIncluded(el.dataset.ext);
+    const ext = el.dataset.ext;
+    const path = el.dataset.path;
+    const f = allFiles.get(path);
+    const inc = isIncluded(ext) && !(f && isFileExcluded(f.name));
     el.classList.toggle('excluded', !inc);
     const existing = el.querySelector('.excl-badge');
     if (!inc && !existing) {
@@ -457,19 +486,29 @@ function finishAdding(added) {
       }
     }
   }
-  renderTree(); updateFilterUI(); updateSuggestSection();
-  if (removedFiles > 0) {
-    const term = excludeTerm.value.trim() || 'data';
+  // File auto-exclusion
+  const dataFiles = findMatchingFiles();
+  let removedFilesCount = 0;
+  if (optAutoExcludeFiles && optAutoExcludeFiles.checked && dataFiles.size > 0) {
+    for (const path of [...allFiles.keys()]) {
+      const f = allFiles.get(path);
+      if (isFileExcluded(f.name)) { allFiles.delete(path); removedFilesCount++; }
+    }
+  }
+  renderTree(); updateFilterUI(); updateSuggestSection(); updateFileSuggestSection();
+  if (removedFiles > 0 || removedFilesCount > 0) {
+    const folderTerm = excludeTerm.value.trim() || 'data';
+    const fileTerm = (fileExcludeTerm && fileExcludeTerm.value.trim()) || '';
     const names = [...dataFolders.keys()]
       .map(p => `<code style="background:#2d1f0a;padding:1px 5px;border-radius:4px">${p.split('/').pop()}/</code>`)
       .join(' ');
     autoNotice.style.display = '';
-    autoNotice.innerHTML = `⚠️ Auto-excluded <strong>${removedFiles} file${removedFiles !== 1 ? 's' : ''}</strong> in ${dataFolders.size} folder${dataFolders.size !== 1 ? 's' : ''} matching "<strong>${term}</strong>": ${names}.`;
+    autoNotice.innerHTML = `⚠️ Auto-excluded <strong>${removedFiles} file${removedFiles !== 1 ? 's' : ''}</strong> in ${dataFolders.size} folder${dataFolders.size !== 1 ? 's' : ''} matching "<strong>${folderTerm}</strong>"${removedFilesCount>0?` and <strong>${removedFilesCount} file${removedFilesCount!==1?'s':''}</strong> matching file filter "<strong>${fileTerm}</strong>"`:''}: ${names}.`;
     setTimeout(() => { autoNotice.style.display = 'none'; }, 7000);
   } else {
     autoNotice.style.display = 'none';
   }
-  setStatus(`Added ${added} file${added !== 1 ? 's' : ''}${removedFiles > 0 ? `, auto-excluded ${removedFiles} from matching folders` : ''}. ${allFiles.size} queued.`, '');
+  setStatus(`Added ${added} file${added !== 1 ? 's' : ''}${(removedFiles > 0 || removedFilesCount>0) ? `, auto-excluded ${removedFiles + removedFilesCount}` : ''}. ${allFiles.size} queued.`, '');
 }
 
 // ── Remove folder ──────────────────────────────────────────────────────────
@@ -501,6 +540,40 @@ function findMatchingFolders() {
   return found;
 }
 
+// ── File matching / auto-remove helpers ─────────────────────────────────
+function isFileExcluded(fileName) {
+  const term = (fileExcludeTerm && fileExcludeTerm.value || '').trim().toLowerCase();
+  return term && fileName.toLowerCase().includes(term);
+}
+
+function findMatchingFiles() {
+  const term = (fileExcludeTerm && fileExcludeTerm.value || '').trim().toLowerCase();
+  if (!term) return new Map();
+  const found = new Map();
+  for (const [path, f] of allFiles) {
+    if (isFileExcluded(f.name)) {
+      found.set(f.name, (found.get(f.name) || 0) + 1);
+    }
+  }
+  return found;
+}
+
+function removeMatchingFiles() {
+  let count = 0;
+  for (const path of [...allFiles.keys()]) {
+    const f = allFiles.get(path);
+    if (isFileExcluded(f.name)) {
+      allFiles.delete(path);
+      count++;
+    }
+  }
+  renderTree();
+  updateFilterUI();
+  updateFileSuggestSection();
+  if (allFiles.size === 0) treeSection.style.display = 'none';
+  setStatus(`Removed ${count} file${count !== 1 ? 's' : ''} matching filter.`, '');
+}
+
 function updateSuggestSection() {
   const term = excludeTerm.value.trim() || 'data';
   const folders = findMatchingFolders();
@@ -520,9 +593,48 @@ function updateSuggestSection() {
   };
 }
 
+function updateFileSuggestSection() {
+  const dataFiles = findMatchingFiles();
+  if (dataFiles.size === 0) {
+    fileSuggestSection.style.display = 'none';
+    return;
+  }
+  fileSuggestSection.style.display = 'block';
+  fileSuggestTitle.textContent = `Files matching "${(fileExcludeTerm && fileExcludeTerm.value.trim()) || ''}" still present`;
+  fileSuggestChips.innerHTML = '';
+  [...dataFiles.entries()].sort((a,b)=>a[0].localeCompare(b[0])).forEach(([fname, count]) => {
+    const chip = document.createElement('div');
+    chip.className = 'suggest-chip';
+    chip.innerHTML = `
+      <span></span>
+      <span class="chip-path" title="${fname}">${fname}</span>
+      <span class="chip-count">${count} file${count !== 1 ? 's' : ''}</span>
+      <button class="chip-rm">×</button>
+    `;
+    chip.querySelector('.chip-rm').addEventListener('click', e => {
+      e.stopPropagation();
+      for (const path of [...allFiles.keys()]) {
+        if (allFiles.get(path).name === fname) allFiles.delete(path);
+      }
+      updateFileSuggestSection();
+      renderTree();
+      updateFilterUI();
+    });
+    fileSuggestChips.appendChild(chip);
+  });
+  fileSuggestAllBtn.onclick = () => { removeMatchingFiles(); };
+}
+
 // Re-render when exclude term or checkbox changes
 excludeTerm.addEventListener('input', () => { renderTree(); updateSuggestSection(); updateFilterUI(); });
 optAutoExclude.addEventListener('change', updateSuggestSection);
+
+fileExcludeTerm.addEventListener('input', () => {
+  renderTree();
+  updateFileSuggestSection();
+  updateFilterUI();
+});
+optAutoExcludeFiles.addEventListener('change', () => { updateFileSuggestSection(); });
 
 // ── Clear ──────────────────────────────────────────────────────────────────
 clearBtn.addEventListener('click', () => {
@@ -530,6 +642,7 @@ clearBtn.addEventListener('click', () => {
   treeContainer.innerHTML = '';
   treeSection.style.display = 'none';
   suggestSection.style.display = 'none';
+  fileSuggestSection.style.display = 'none';
   autoNotice.style.display = 'none';
   downloadBtn.disabled = true;
   updateFilterUI();
@@ -593,7 +706,9 @@ function renderDOMNode(node, container, depth, pathPrefix) {
     } else {
       const f = entry._data;
       const row = document.createElement('div');
-      row.className = `tree-item tree-file${isIncluded(f.ext) ? '' : ' excluded'}`;
+      const inc = isIncluded(f.ext) && !isFileExcluded(f.name);
+      const hint = isFileExcluded(f.name);
+      row.className = `tree-item tree-file${inc ? '' : ' excluded'}${hint ? ' data-hint' : ''}`;
       row.dataset.ext = f.ext; row.dataset.path = f.path;
       row.style.paddingLeft = indent + 'px';
       row.innerHTML = `
@@ -605,7 +720,7 @@ function renderDOMNode(node, container, depth, pathPrefix) {
       row.querySelector('.tree-remove').addEventListener('click', e => {
         e.stopPropagation();
         allFiles.delete(f.path); row.remove();
-        updateFilterUI(); updateSuggestSection();
+        updateFilterUI(); updateSuggestSection(); updateFileSuggestSection();
         if (allFiles.size === 0) treeSection.style.display = 'none';
         setStatus(`Removed "${f.name}".`, '');
       });
