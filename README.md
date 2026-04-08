@@ -12,7 +12,7 @@
 
 ## 🚀 Quick Start
 
-1. Open `index.html` in your browser
+1. Open [`index.html`](https://zhu-jianlong.github.io/code-review-bundler/) in your browser
 1. Drag folders/files or click "browse files"
 1. Toggle presets to filter
 1. Edit exclude term if needed
